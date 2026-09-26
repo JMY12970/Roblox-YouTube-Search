@@ -1,9 +1,17 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GuiService = game:GetService("GuiService")
+local HttpService = game:GetService("HttpService")
 
 local player = Players.LocalPlayer
-local request = ReplicatedStorage:WaitForChild("YouTubeSearchRequest")
+
+-- Put your API key here for Delta Executor support.
+-- If the server RemoteFunction exists, this script uses it automatically.
+local API_KEY = "AIzaSyCcSxjD3IffI2iVp8tQKjD8yzz6t-jW4FQ"
+
+local remote = ReplicatedStorage:FindFirstChild("YouTubeSearchRequest")
+local requestCooldown = 1.5
+local lastRequestAt = 0
 
 -- Add uploaded Roblox image asset IDs here to show thumbnails for known videos.
 local thumbnailAssets = {}
@@ -26,6 +34,105 @@ local function make(className, properties, parent)
 	end
 	object.Parent = parent
 	return object
+end
+
+local function chooseThumbnail(thumbnails)
+	if not thumbnails then
+		return nil
+	end
+
+	local thumbnail = thumbnails.high or thumbnails.medium or thumbnails.default
+	return thumbnail and thumbnail.url or nil
+end
+
+local function parseYoutubeResponse(responseBody)
+	local decodeOk, payload = pcall(function()
+		return HttpService:JSONDecode(responseBody)
+	end)
+
+	if not decodeOk or typeof(payload) ~= "table" then
+		return { ok = false, error = "YouTube returned an unreadable response." }
+	end
+
+	local items = {}
+	for _, result in ipairs(payload.items or {}) do
+		local snippet = result.snippet
+		local videoId = result.id and result.id.videoId
+		if snippet and videoId then
+			table.insert(items, {
+				videoId = videoId,
+				title = snippet.title or "Untitled video",
+				channel = snippet.channelTitle or "Unknown channel",
+				publishedAt = snippet.publishedAt or "",
+				thumbnailUrl = chooseThumbnail(snippet.thumbnails),
+			})
+		end
+	end
+
+	return {
+		ok = true,
+		items = items,
+		nextPageToken = payload.nextPageToken,
+	}
+end
+
+local function directSearch(query, pageToken)
+	local now = os.clock()
+	if now - lastRequestAt < requestCooldown then
+		return { ok = false, error = "Please wait a moment before searching again." }
+	end
+	lastRequestAt = now
+
+	if API_KEY == "PASTE_YOUR_YOUTUBE_API_KEY_HERE" then
+		return { ok = false, error = "Set API_KEY near the top of the script to your YouTube Data API key." }
+	end
+
+	local url = "https://www.googleapis.com/youtube/v3/search"
+		.. "?part=snippet&type=video&maxResults=20&safeSearch=moderate&q="
+		.. HttpService:UrlEncode(query)
+		.. "&key=" .. HttpService:UrlEncode(API_KEY)
+
+	if pageToken then
+		url = url .. "&pageToken=" .. HttpService:UrlEncode(pageToken)
+	end
+
+	local requestOk, response = pcall(function()
+		return HttpService:RequestAsync({
+			Url = url,
+			Method = "GET",
+			Headers = {
+				["Accept"] = "application/json",
+			},
+		})
+	end)
+
+	if not requestOk then
+		warn("YouTube search request failed:", response)
+		return { ok = false, error = "Could not reach YouTube. Check the API key and HTTP settings." }
+	end
+
+	if not response.Success then
+		warn("YouTube API returned HTTP status", response.StatusCode)
+		return { ok = false, error = "YouTube returned an error (HTTP " .. response.StatusCode .. ")." }
+	end
+
+	return parseYoutubeResponse(response.Body)
+end
+
+local function doSearchRequest(query, pageToken)
+	if remote then
+		local invokeOk, response = pcall(function()
+			return remote:InvokeServer(query, pageToken)
+		end)
+
+		if not invokeOk then
+			return { ok = false, error = "Search failed. Check that the server script is running." }
+		end
+
+		return response or { ok = false, error = "Search failed." }
+	end
+
+	return directSearch(query, pageToken)
 end
 
 local screen = make("ScreenGui", {
@@ -263,7 +370,7 @@ local function addResult(item)
 	make("TextLabel", {
 		Name = "Title",
 		Position = UDim2.fromOffset(10, 150),
-		Size = UDim2.new(1, -20, 0, 42),
+		Size = UDim2.new(1, -20, 0, 36),
 		BackgroundTransparency = 1,
 		Text = item.title,
 		TextColor3 = colors.white,
@@ -277,12 +384,25 @@ local function addResult(item)
 
 	make("TextLabel", {
 		Name = "Channel",
-		Position = UDim2.fromOffset(10, 197),
-		Size = UDim2.new(1, -20, 0, 22),
+		Position = UDim2.fromOffset(10, 190),
+		Size = UDim2.new(1, -20, 0, 18),
 		BackgroundTransparency = 1,
 		Text = item.channel,
 		TextColor3 = colors.muted,
 		TextSize = 12,
+		Font = Enum.Font.Gotham,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextXAlignment = Enum.TextXAlignment.Left,
+	}, card)
+
+	make("TextLabel", {
+		Name = "RawLink",
+		Position = UDim2.fromOffset(10, 211),
+		Size = UDim2.new(1, -20, 0, 16),
+		BackgroundTransparency = 1,
+		Text = "https://www.youtube.com/watch?v=" .. item.videoId,
+		TextColor3 = Color3.fromRGB(120, 180, 255),
+		TextSize = 10,
 		Font = Enum.Font.Gotham,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		TextXAlignment = Enum.TextXAlignment.Left,
@@ -307,12 +427,8 @@ local function search(query, pageToken)
 	moreButton.Active = false
 	status.Text = "Searching YouTube..."
 
-	local invokeOk, response = pcall(function()
-		return request:InvokeServer(query, pageToken)
-	end)
-	if not invokeOk then
-		status.Text = "Search failed. Check that the server script is running."
-	elseif not response.ok then
+	local response = doSearchRequest(query, pageToken)
+	if not response.ok then
 		status.Text = response.error or "Search failed."
 	else
 		if not pageToken then
