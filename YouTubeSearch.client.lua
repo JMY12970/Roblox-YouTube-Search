@@ -224,6 +224,20 @@ local searchButton = make("TextButton", {
 }, searchBox)
 make("UICorner", { CornerRadius = UDim.new(0, 17) }, searchButton)
 
+local minimizeButton = make("TextButton", {
+	Name = "MinimizeButton",
+	AnchorPoint = Vector2.new(1, 0.5),
+	Position = UDim2.new(1, -12, 0.5, 0),
+	Size = UDim2.fromOffset(34, 34),
+	BackgroundColor3 = Color3.fromRGB(45, 45, 45),
+	Text = "-",
+	TextColor3 = colors.white,
+	TextSize = 20,
+	Font = Enum.Font.GothamMedium,
+	AutoButtonColor = true,
+}, topBar)
+make("UICorner", { CornerRadius = UDim.new(0, 17) }, minimizeButton)
+
 local heading = make("TextLabel", {
 	Name = "ResultsHeading",
 	Position = UDim2.new(0, 26, 0, 73),
@@ -296,8 +310,44 @@ local currentQuery = ""
 local nextPageToken = nil
 local resultCount = 0
 local loading = false
+local minimized = false
+local updateGrid
 
-local function updateGrid()
+local function setMinimized(value)
+	minimized = value
+	for _, child in ipairs(root:GetChildren()) do
+		if child ~= topBar then
+			child.Visible = not minimized
+		end
+	end
+	searchBox.Visible = not minimized
+
+	if minimized then
+		root.AnchorPoint = Vector2.new(1, 1)
+		root.Position = UDim2.new(1, -12, 1, -12)
+		root.Size = UDim2.fromOffset(220, 62)
+		root.BackgroundColor3 = colors.bar
+		topBar.Size = UDim2.fromScale(1, 1)
+		logo.Position = UDim2.fromOffset(16, 12)
+		logo.Size = UDim2.fromOffset(40, 38)
+		brand.Visible = false
+		minimizeButton.Text = "+"
+	else
+		root.AnchorPoint = Vector2.zero
+		root.Position = UDim2.fromScale(0, 0)
+		root.Size = UDim2.fromScale(1, 1)
+		root.BackgroundColor3 = colors.background
+		topBar.Size = UDim2.new(1, 0, 0, 62)
+		minimizeButton.Text = "-"
+	end
+	updateGrid()
+end
+
+updateGrid = function()
+	if minimized then
+		return
+	end
+
 	local width = root.AbsoluteSize.X
 	if width < 640 then
 		brand.Visible = false
@@ -305,14 +355,14 @@ local function updateGrid()
 		logo.Size = UDim2.fromOffset(40, 38)
 		searchBox.AnchorPoint = Vector2.new(0, 0.5)
 		searchBox.Position = UDim2.new(0, 64, 0.5, 0)
-		searchBox.Size = UDim2.new(1, -78, 0, 40)
+		searchBox.Size = UDim2.new(1, -124, 0, 40)
 	else
 		brand.Visible = true
 		logo.Position = UDim2.fromOffset(20, 12)
 		logo.Size = UDim2.fromOffset(170, 38)
 		searchBox.AnchorPoint = Vector2.new(0.5, 0.5)
-		searchBox.Position = UDim2.new(0.58, 0, 0.5, 0)
-		searchBox.Size = UDim2.new(0.52, 0, 0, 40)
+		searchBox.Position = UDim2.new(0.54, 0, 0.5, 0)
+		searchBox.Size = UDim2.new(0.48, 0, 0, 40)
 	end
 
 	local columns = width < 600 and 1 or (width < 1000 and 2 or 3)
@@ -414,6 +464,8 @@ local function addResult(item)
 		end)
 		if not opened then
 			status.Text = "Could not open the video in a browser."
+		else
+			status.Text = "Video opened. Pause and speed are controlled in the YouTube player."
 		end
 	end)
 end
@@ -482,6 +534,10 @@ moreButton.Activated:Connect(function()
 	if currentQuery ~= "" and nextPageToken then
 		search(currentQuery, nextPageToken)
 	end
+end)
+
+minimizeButton.Activated:Connect(function()
+	setMinimized(not minimized)
 end)
 
 root:GetPropertyChangedSignal("AbsoluteSize"):Connect(updateGrid)
