@@ -5,7 +5,7 @@ local HttpService = game:GetService("HttpService")
 
 local player = Players.LocalPlayer
 local remote = ReplicatedStorage:FindFirstChild("YouTubeSearchRequest")
-local API_KEY = "PASTE_A_NEW_API_KEY_HERE"
+local API_KEY = "AIzaSyD27m1A1wxDeEGWiWKvvovkG7z8VlJbeB4"
 local requestCooldown = 1.5
 local lastRequestAt = 0
 
