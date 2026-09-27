@@ -4,12 +4,8 @@ local GuiService = game:GetService("GuiService")
 local HttpService = game:GetService("HttpService")
 
 local player = Players.LocalPlayer
-
--- Put your API key here for Delta Executor support.
--- If the server RemoteFunction exists, this script uses it automatically.
-local API_KEY = "AIzaSyCcSxjD3IffI2iVp8tQKjD8yzz6t-jW4FQ"
-
 local remote = ReplicatedStorage:FindFirstChild("YouTubeSearchRequest")
+local API_KEY = "PASTE_A_NEW_API_KEY_HERE"
 local requestCooldown = 1.5
 local lastRequestAt = 0
 
@@ -83,53 +79,54 @@ local function directSearch(query, pageToken)
 	end
 	lastRequestAt = now
 
-	if API_KEY == "PASTE_YOUR_YOUTUBE_API_KEY_HERE" then
-		return { ok = false, error = "Set API_KEY near the top of the script to your YouTube Data API key." }
+	if API_KEY == "PASTE_A_NEW_API_KEY_HERE" or API_KEY == "" then
+		return { ok = false, error = "Set API_KEY near the top of the script." }
 	end
 
 	local url = "https://www.googleapis.com/youtube/v3/search"
 		.. "?part=snippet&type=video&maxResults=20&safeSearch=moderate&q="
 		.. HttpService:UrlEncode(query)
 		.. "&key=" .. HttpService:UrlEncode(API_KEY)
-
 	if pageToken then
 		url = url .. "&pageToken=" .. HttpService:UrlEncode(pageToken)
 	end
 
+	local executorRequest = request or http_request or (syn and syn.request)
 	local requestOk, response = pcall(function()
-		return HttpService:RequestAsync({
+		local requestOptions = {
 			Url = url,
 			Method = "GET",
-			Headers = {
-				["Accept"] = "application/json",
-			},
-		})
+			Headers = { Accept = "application/json" },
+		}
+		if executorRequest then
+			return executorRequest(requestOptions)
+		end
+		return HttpService:RequestAsync(requestOptions)
 	end)
-
-	if not requestOk then
-		warn("YouTube search request failed:", response)
-		return { ok = false, error = "Could not reach YouTube. Check the API key and HTTP settings." }
+	if not requestOk or typeof(response) ~= "table" then
+		return { ok = false, error = "HTTP request failed. Check Delta's request support." }
 	end
 
-	if not response.Success then
-		warn("YouTube API returned HTTP status", response.StatusCode)
-		return { ok = false, error = "YouTube returned an error (HTTP " .. response.StatusCode .. ")." }
+	local statusCode = tonumber(response.StatusCode or response.status_code or response.Status)
+	if response.Success == false or (statusCode and statusCode >= 400) then
+		return { ok = false, error = "YouTube returned an error (HTTP " .. tostring(statusCode or "unknown") .. ")." }
 	end
 
-	return parseYoutubeResponse(response.Body)
+	local responseBody = response.Body or response.body
+	if typeof(responseBody) ~= "string" then
+		return { ok = false, error = "YouTube returned an empty response." }
+	end
+	return parseYoutubeResponse(responseBody)
 end
 
 local function doSearchRequest(query, pageToken)
-	if remote then
+	if remote and remote:IsA("RemoteFunction") then
 		local invokeOk, response = pcall(function()
 			return remote:InvokeServer(query, pageToken)
 		end)
-
-		if not invokeOk then
-			return { ok = false, error = "Search failed. Check that the server script is running." }
+		if invokeOk and response then
+			return response
 		end
-
-		return response or { ok = false, error = "Search failed." }
 	end
 
 	return directSearch(query, pageToken)
